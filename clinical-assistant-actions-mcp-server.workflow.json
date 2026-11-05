@@ -1,0 +1,106 @@
+{
+  "name": "Clinical Assistant – Actions (MCP Server)",
+  "nodes": [
+    {
+      "parameters": {
+        "authentication": "none",
+        "path": "clinical-actions",
+        "instructions": "Clinic action tools. schedule_patient_followup creates a Google Calendar event (times in India Standard Time, +05:30). create_clinical_task adds a row to the Clinical Tasks table. email_doctor_summary sends a plain-text email via Gmail."
+      },
+      "id": "67c84297-e27c-46dc-a226-c47cdbd1c767",
+      "name": "Clinical Actions MCP Server",
+      "type": "@n8n/n8n-nodes-langchain.mcpTrigger",
+      "typeVersion": 2.1,
+      "position": [520, 200]
+    },
+    {
+      "parameters": {
+        "resource": "event",
+        "operation": "create",
+        "calendar": { "__rl": true, "mode": "id", "value": "YOUR_CALENDAR_ID" },
+        "start": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('start_datetime', 'Appointment start as ISO 8601 date-time with India offset, e.g. 2026-10-30T10:00:00+05:30') }}",
+        "end": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('end_datetime', 'Appointment end as ISO 8601 date-time with India offset. Default 30 minutes after start (45 for a new patient).') }}",
+        "useDefaultReminders": true,
+        "additionalFields": {
+          "summary": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('title', 'Event title, e.g. \"Follow-up: Ravi Kumar – diabetes review\"') }}",
+          "description": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('details', 'Reason for the follow-up and any notes for the clinician') }}"
+        }
+      },
+      "id": "72a6c375-c4ef-45c5-a4de-ea3f3951852c",
+      "name": "schedule_patient_followup",
+      "type": "n8n-nodes-base.googleCalendarTool",
+      "typeVersion": 1.3,
+      "position": [300, 420],
+      "credentials": { "googleCalendarOAuth2Api": { "id": "YOUR_GOOGLE_CALENDAR_CREDENTIAL_ID", "name": "Google Calendar account" } }
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "insert",
+        "dataTableId": { "__rl": true, "mode": "id", "value": "YOUR_DATA_TABLE_ID", "cachedResultName": "Clinical Tasks" },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "task": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('task', 'Short description of the task, e.g. \"Upload lab results\"') }}",
+            "patient_name": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('patient_name', 'Patient name or ID if mentioned, otherwise empty') }}",
+            "priority": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('priority', 'One of: high, medium, low. Use medium if not stated.') }}",
+            "due_date": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('due_date', 'Due date as YYYY-MM-DD if mentioned, otherwise empty') }}",
+            "status": "open",
+            "notes": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('notes', 'Any extra detail, otherwise empty') }}"
+          },
+          "schema": [
+            { "id": "task", "displayName": "task", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "patient_name", "displayName": "patient_name", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "priority", "displayName": "priority", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "due_date", "displayName": "due_date", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "status", "displayName": "status", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "notes", "displayName": "notes", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true }
+          ]
+        }
+      },
+      "id": "4c1bdfb0-4283-4cf5-aaed-0108db955340",
+      "name": "create_clinical_task",
+      "type": "n8n-nodes-base.dataTableTool",
+      "typeVersion": 1.1,
+      "position": [520, 420]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('doctor_email', \"The doctor's email address\") }}",
+        "subject": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('subject', 'Email subject, e.g. \"Patient summary – Ravi Kumar – 23 Oct 2026\"') }}",
+        "emailType": "text",
+        "message": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('summary', 'Plain-text doctor summary using the clinic format: patient, reason, key findings, current medicines, actions taken, questions for the doctor, follow-up planned') }}",
+        "options": { "appendAttribution": false, "senderName": "Clinical Assistant" }
+      },
+      "id": "f0c5ae84-6ad2-455d-b01f-07566ce90fc6",
+      "name": "email_doctor_summary",
+      "type": "n8n-nodes-base.gmailTool",
+      "typeVersion": 2.2,
+      "position": [740, 420],
+      "credentials": { "gmailOAuth2": { "id": "YOUR_GMAIL_CREDENTIAL_ID", "name": "Gmail account" } }
+    },
+    {
+      "parameters": {
+        "content": "## Clinical Actions (MCP Server)\nThis workflow exposes 3 tools over MCP so the Telegram assistant can act:\n- **schedule_patient_followup** → Google Calendar\n- **create_clinical_task** → n8n Data Table \"Clinical Tasks\"\n- **email_doctor_summary** → Gmail\n\nMust be **Published** (active) for the Telegram assistant to reach it.\nProduction URL: https://YOUR-N8N-INSTANCE/mcp/clinical-actions",
+        "color": 4,
+        "width": 380,
+        "height": 300
+      },
+      "id": "382460ff-8353-4922-99d7-e234e3289b06",
+      "name": "Sticky Note d3073da9",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [60, 120]
+    }
+  ],
+  "connections": {
+    "schedule_patient_followup": { "ai_tool": [[{ "node": "Clinical Actions MCP Server", "type": "ai_tool", "index": 0 }]] },
+    "create_clinical_task": { "ai_tool": [[{ "node": "Clinical Actions MCP Server", "type": "ai_tool", "index": 0 }]] },
+    "email_doctor_summary": { "ai_tool": [[{ "node": "Clinical Actions MCP Server", "type": "ai_tool", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "pinData": {},
+  "meta": {}
+}

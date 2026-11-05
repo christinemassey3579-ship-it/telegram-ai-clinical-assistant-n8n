@@ -1,0 +1,406 @@
+{
+  "name": "Clinical Assistant – Telegram Bot (RAG + MCP)",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "id": "e12b676e-9b75-4946-910a-b1c184433064",
+      "name": "Telegram Message In",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.5,
+      "position": [
+        -512,
+        560
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "YOUR_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.message.text || $json.message.caption || \"(The user sent a non-text message. Ask them to type their request.)\" }}",
+        "options": {
+          "systemMessage": "=You are the Clinical Assistant, a Telegram helper for clinic staff in India. Today is {{ $now.setZone('Asia/Kolkata').toFormat('cccc, d LLLL yyyy, HH:mm') }} (India Standard Time, UTC+05:30).\n\nYou have these tools:\n1. clinical_knowledge_base - search the clinic's treatment guidelines, dosage info, follow-up protocols, lab workflow, doctor summary format and red flags.\n2. MCP tools from the Clinical Actions server:\n   - schedule_patient_followup - create a Google Calendar event for a patient follow-up.\n   - create_clinical_task - add a task to the Clinical Tasks list.\n   - email_doctor_summary - email a patient summary to a doctor.\n\nHow to handle requests:\n- Clinical questions (dosage, guidelines, monitoring, follow-up timing): ALWAYS call clinical_knowledge_base first and answer ONLY from what it returns. Mention which guideline section you used. If the answer is not in the knowledge base, say so plainly and suggest checking the official prescribing information or asking the doctor. Never invent doses.\n- \"Schedule ...\" requests: if patient name or date/time is missing, ask for it in one short question. Use the follow-up protocol from the knowledge base to suggest timing when only the reason is given. Default length 30 minutes (45 for a new patient), within clinic hours Mon-Sat 9:00-18:00 IST. Send times as ISO 8601 with +05:30.\n- \"Create task ...\" requests: call create_clinical_task straight away. Use priority medium unless stated; fill patient_name and due_date only if mentioned.\n- \"Email doctor summary\" requests: you need the doctor's email address and the patient details to summarise (from the message or earlier in this chat). If either is missing, ask for it. Write the summary in the clinic format (look it up in the knowledge base), then call email_doctor_summary. Never make up clinical findings.\n- After any action, confirm in one or two lines what was done (e.g. date/time booked, task added, email sent to whom).\n- Red flags (chest pain, stroke signs, severe breathlessness, anaphylaxis, etc.): tell the user to seek emergency care now (India 112 / 108) and inform the treating doctor.\n\nStyle: plain text only, no markdown symbols like ** or #. Keep replies short and easy to read on a phone. Use simple dashes for lists. End every dosage answer with: \"Please confirm with the prescribing doctor.\" ",
+          "maxIterations": 8,
+          "enableStreaming": false
+        }
+      },
+      "id": "5541efbf-638f-4886-a429-57782df62444",
+      "name": "Clinical Assistant Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        -256,
+        528
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "claude-sonnet-5",
+          "cachedResultName": "Claude Sonnet 5"
+        },
+        "options": {
+          "maxTokensToSample": 2048
+        }
+      },
+      "id": "34e039fe-52ef-4a06-9481-eaf11b9f6dbc",
+      "name": "Claude Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.6,
+      "position": [
+        -384,
+        800
+      ],
+      "credentials": {
+        "anthropicApi": {
+          "id": "YOUR_ANTHROPIC_CREDENTIAL_ID",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Telegram Message In').item.json.message.chat.id }}",
+        "contextWindowLength": 10
+      },
+      "id": "8eec9975-7927-4fa5-89a5-2e4f1feb3335",
+      "name": "Chat Memory",
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.4,
+      "position": [
+        -224,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "retrieve-as-tool",
+        "toolDescription": "Search the clinic knowledge base of treatment guidelines, medicine dosages (metformin, amlodipine, lisinopril, atorvastatin, levothyroxine, paracetamol, ibuprofen, antibiotics, salbutamol), follow-up timing protocols, lab results workflow, doctor summary email format and red-flag escalation. Use for any clinical or protocol question.",
+        "memoryKey": {
+          "__rl": true,
+          "mode": "id",
+          "value": "clinical_kb"
+        }
+      },
+      "id": "fb96984b-a827-4761-8584-626fb101e75a",
+      "name": "clinical_knowledge_base",
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreInMemory",
+      "typeVersion": 1.3,
+      "position": [
+        -64,
+        800
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "9c431287-d46c-4857-b91c-d7dc4894b9a8",
+      "name": "Gemini Embeddings (search)",
+      "type": "@n8n/n8n-nodes-langchain.embeddingsGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        -64,
+        1008
+      ],
+      "credentials": {
+        "googlePalmApi": {
+          "id": "YOUR_GEMINI_CREDENTIAL_ID",
+          "name": "Google Gemini API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "endpointUrl": "https://YOUR-N8N-INSTANCE/mcp/clinical-actions",
+        "options": {}
+      },
+      "id": "f2eeea14-4d9c-4745-a61d-18d4f8b988b2",
+      "name": "Clinical Actions (MCP)",
+      "type": "@n8n/n8n-nodes-langchain.mcpClientTool",
+      "typeVersion": 1.4,
+      "position": [
+        192,
+        768
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Telegram Message In').item.json.message.chat.id }}",
+        "text": "={{ ($json.output || \"Sorry, something went wrong. Please try again.\").replace(/&/g, \"&amp;\").replace(/</g, \"&lt;\").replace(/>/g, \"&gt;\") }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "738c1f5d-4c3d-4c34-8e0b-f15e60e56a37",
+      "name": "Send Reply to Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        192,
+        544
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "YOUR_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "7de7f452-c033-4658-a6b8-f97294068cc8",
+      "name": "Load Knowledge Base (click to run)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        608,
+        496
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const sections = [\n {\n  \"title\": \"1. Type 2 Diabetes – Metformin\",\n  \"content\": \"## 1. Type 2 Diabetes – Metformin\\n\\n**Indication:** First-line drug therapy for type 2 diabetes alongside diet and exercise.\\n\\n**Dosage (adults):**\\n- Immediate-release: start 500 mg once or twice daily with meals (or 850 mg once daily).\\n- Increase by 500 mg per week as tolerated to reduce stomach upset.\\n- Usual maintenance: 1,500–2,000 mg per day in divided doses. Maximum 2,550 mg per day.\\n- Extended-release: start 500–1,000 mg once daily with the evening meal; maximum 2,000 mg per day.\\n\\n**Kidney function (eGFR):**\\n- eGFR below 30: do not use.\\n- eGFR 30–45: do not start; if already taking, review benefit and consider dose reduction.\\n- Check eGFR before starting and at least once a year.\\n- Pause before iodinated contrast if eGFR is 30–60; restart after 48 hours once kidney function is stable.\\n\\n**Side effects:** nausea, diarrhoea, metallic taste (usually settle with slow increase); vitamin B12 deficiency with long-term use; lactic acidosis (rare, serious).\\n\\n**Monitoring:** HbA1c every 3 months until at target, then every 6 months. Usual HbA1c target below 7% for most adults (individualise for older or frail patients).\"\n },\n {\n  \"title\": \"2. Hypertension – Treatment Guideline\",\n  \"content\": \"## 2. Hypertension – Treatment Guideline\\n\\n**Diagnosis:** Confirm with repeated readings or home/ambulatory monitoring.\\n\\n**Target:** below 130/80 mmHg for most adults; less strict targets may suit frail older patients.\\n\\n**First-line medicines:** ACE inhibitor or ARB, calcium-channel blocker, or thiazide-type diuretic.\\n\\n**Amlodipine:** start 5 mg once daily (2.5 mg in older adults or liver impairment). Maximum 10 mg once daily. Common side effect: ankle swelling.\\n\\n**Lisinopril:** start 10 mg once daily (5 mg if already on a diuretic or kidney impairment). Usual 20–40 mg once daily; maximum 80 mg. Check potassium and creatinine 1–2 weeks after starting or increasing. Stop if angioedema. Avoid in pregnancy.\\n\\n**Follow-up:** review 2–4 weeks after any medicine change; monthly until at target, then every 3–6 months.\"\n },\n {\n  \"title\": \"3. High Cholesterol – Atorvastatin\",\n  \"content\": \"## 3. High Cholesterol – Atorvastatin\\n\\n- Moderate intensity: 10–20 mg once daily.\\n- High intensity (established heart disease or high risk): 40–80 mg once daily.\\n- Check lipid panel 4–12 weeks after starting or changing dose, then every 3–12 months.\\n- Ask about muscle pain; check CK if symptoms. Check liver tests at baseline.\\n- Avoid in pregnancy.\"\n },\n {\n  \"title\": \"4. Hypothyroidism – Levothyroxine\",\n  \"content\": \"## 4. Hypothyroidism – Levothyroxine\\n\\n- Full replacement: about 1.6 mcg per kg per day.\\n- Older adults or heart disease: start 25–50 mcg daily and increase slowly.\\n- Take on an empty stomach, 30–60 minutes before breakfast; separate from calcium and iron by 4 hours.\\n- Check TSH 6–8 weeks after starting or changing the dose, then yearly once stable.\"\n },\n {\n  \"title\": \"5. Pain and Fever\",\n  \"content\": \"## 5. Pain and Fever\\n\\n**Paracetamol (acetaminophen):** 500–1,000 mg every 4–6 hours as needed. Maximum 4 g per day; maximum 3 g per day (or lower) in liver disease, heavy alcohol use or low body weight.\\n\\n**Ibuprofen:** 200–400 mg every 4–6 hours with food. Over-the-counter maximum 1,200 mg per day; prescription maximum 3,200 mg per day. Avoid in active stomach ulcer, significant kidney disease, late pregnancy, or with anticoagulants unless a clinician advises.\"\n },\n {\n  \"title\": \"6. Uncomplicated Urinary Tract Infection (non-pregnant adult women)\",\n  \"content\": \"## 6. Uncomplicated Urinary Tract Infection (non-pregnant adult women)\\n\\n- Nitrofurantoin 100 mg (modified release) twice daily for 5 days. Avoid if eGFR below 30.\\n- Alternative per local resistance: trimethoprim-sulfamethoxazole 160/800 mg twice daily for 3 days.\\n- Escalate if fever, flank pain, vomiting, pregnancy, or symptoms in men (these are not \\\"uncomplicated\\\").\"\n },\n {\n  \"title\": \"7. Community-Acquired Pneumonia (outpatient, healthy adult, no risk factors)\",\n  \"content\": \"## 7. Community-Acquired Pneumonia (outpatient, healthy adult, no risk factors)\\n\\n- Amoxicillin 1 g three times daily for 5 days (minimum), or doxycycline 100 mg twice daily.\\n- Assess severity (e.g., CURB-65). Refer to hospital if confusion, low oxygen saturation, low blood pressure, or high respiratory rate.\\n- Review at 48–72 hours if not improving.\"\n },\n {\n  \"title\": \"8. Asthma – Reliever Inhaler\",\n  \"content\": \"## 8. Asthma – Reliever Inhaler\\n\\n- Salbutamol (albuterol) 100 mcg per puff: 1–2 puffs every 4–6 hours as needed.\\n- Using a reliever more than twice a week means asthma is poorly controlled: review inhaler technique and controller therapy.\\n- Emergency: if unable to speak in full sentences, oxygen saturation below 92%, or no response to reliever, call emergency services.\"\n },\n {\n  \"title\": \"9. Follow-up and Scheduling Protocols\",\n  \"content\": \"## 9. Follow-up and Scheduling Protocols\\n\\n| Situation | Follow-up timing |\\n|---|---|\\n| New metformin start or dose change | 2–4 weeks (tolerance), HbA1c at 3 months |\\n| Blood pressure medicine change | 2–4 weeks |\\n| Post-hospital discharge | Within 7 days |\\n| New levothyroxine dose | TSH at 6–8 weeks |\\n| New statin | Lipids at 4–12 weeks |\\n| Antibiotic course not improving | 48–72 hours |\\n| Routine stable chronic disease | Every 3–6 months |\\n\\n- Standard follow-up appointment length: 30 minutes. New patient: 45 minutes.\\n- Clinic hours: Monday–Saturday, 9:00 AM – 6:00 PM IST.\"\n },\n {\n  \"title\": \"10. Lab Results Workflow\",\n  \"content\": \"## 10. Lab Results Workflow\\n\\n- Upload all lab reports to the patient record within 24 hours of receipt.\\n- Clinician reviews routine results within 48 hours.\\n- Critical values (e.g., potassium above 6.0 or below 2.5 mmol/L, glucose below 3.0 mmol/L / 54 mg/dL) must be phoned to the treating doctor the same day and documented.\"\n },\n {\n  \"title\": \"11. Doctor Summary Format (for emails)\",\n  \"content\": \"## 11. Doctor Summary Format (for emails)\\n\\nUse this structure when sending a patient summary to a doctor:\\n1. Patient name / ID and date\\n2. Reason for contact\\n3. Key findings (vitals, labs)\\n4. Current medicines and doses\\n5. Actions taken\\n6. Questions or requests for the doctor\\n7. Follow-up planned\\n\\nDo not include more personal data than the doctor needs.\"\n },\n {\n  \"title\": \"12. Red Flags – Escalate Immediately\",\n  \"content\": \"## 12. Red Flags – Escalate Immediately\\n\\nChest pain, stroke symptoms (face drooping, arm weakness, speech difficulty), severe breathing difficulty, signs of anaphylaxis, blood glucose below 3.0 mmol/L with confusion, suicidal thoughts, or any rapidly worsening condition: advise emergency care (India: dial 112 / 108) and inform the treating doctor.\"\n }\n];\nreturn sections.map(s => ({ json: s }));"
+      },
+      "id": "06036b1b-33fa-4819-9822-0020e738573f",
+      "name": "Clinical Guidelines (sample data)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        848,
+        496
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "insert",
+        "memoryKey": {
+          "__rl": true,
+          "mode": "id",
+          "value": "clinical_kb"
+        },
+        "clearStore": true
+      },
+      "id": "a1aaabc2-4eac-4fb7-8371-b98650016630",
+      "name": "Save to Knowledge Base",
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreInMemory",
+      "typeVersion": 1.3,
+      "position": [
+        1120,
+        496
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "65b3d413-db84-4259-b902-c9c72348e460",
+      "name": "Gemini Embeddings (load)",
+      "type": "@n8n/n8n-nodes-langchain.embeddingsGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        1040,
+        720
+      ],
+      "credentials": {
+        "googlePalmApi": {
+          "id": "YOUR_GEMINI_CREDENTIAL_ID",
+          "name": "Google Gemini API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsonMode": "expressionData",
+        "jsonData": "={{ $json.content }}",
+        "options": {
+          "metadata": {
+            "metadataValues": [
+              {
+                "name": "section",
+                "value": "={{ $json.title }}"
+              }
+            ]
+          }
+        }
+      },
+      "id": "06b17db2-d90c-4053-9261-51588da54168",
+      "name": "Guideline Loader",
+      "type": "@n8n/n8n-nodes-langchain.documentDefaultDataLoader",
+      "typeVersion": 1.1,
+      "position": [
+        1216,
+        720
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Part A – Telegram assistant\nTelegram message -> AI agent (Claude) -> reply in Telegram.\nThe agent has 2 kinds of tools:\n- **RAG**: clinical_knowledge_base (answers dosage / guideline questions)\n- **MCP**: Clinical Actions server (schedule follow-up, create task, email doctor)\nChat memory is per Telegram chat, last 10 messages.",
+        "height": 220,
+        "width": 520,
+        "color": 5
+      },
+      "id": "788d8bf3-246c-4d91-975a-b49ceb522d1d",
+      "name": "Sticky Note c0a56bc0",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -352,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Part B – Load the knowledge base (RAG)\nClick **Load Knowledge Base** once before testing.\nIt turns the sample guidelines into embeddings (Gemini) and stores them in n8n memory under the key **clinical_kb**.\nRe-run it if n8n restarts or you edit the guidelines.",
+        "height": 180,
+        "width": 520,
+        "color": 6
+      },
+      "id": "ff0d6d91-5816-4523-82d2-92ecc5f50190",
+      "name": "Sticky Note aa77c0d4",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        592,
+        272
+      ]
+    }
+  ],
+  "connections": {
+    "Telegram Message In": {
+      "main": [
+        [
+          {
+            "node": "Clinical Assistant Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clinical Assistant Agent": {
+      "main": [
+        [
+          {
+            "node": "Send Reply to Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Clinical Assistant Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chat Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "Clinical Assistant Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "clinical_knowledge_base": {
+      "ai_tool": [
+        [
+          {
+            "node": "Clinical Assistant Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Embeddings (search)": {
+      "ai_embedding": [
+        [
+          {
+            "node": "clinical_knowledge_base",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clinical Actions (MCP)": {
+      "ai_tool": [
+        [
+          {
+            "node": "Clinical Assistant Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Knowledge Base (click to run)": {
+      "main": [
+        [
+          {
+            "node": "Clinical Guidelines (sample data)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clinical Guidelines (sample data)": {
+      "main": [
+        [
+          {
+            "node": "Save to Knowledge Base",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Embeddings (load)": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Save to Knowledge Base",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guideline Loader": {
+      "ai_document": [
+        [
+          {
+            "node": "Save to Knowledge Base",
+            "type": "ai_document",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {}
+}
